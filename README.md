@@ -3,7 +3,7 @@
 
 This contains everything you need to run your app locally.
 
-View your app :ais-dev-6mjmn3pcbtpqzdmffudibn-272308888115.asia-east1.run.app
+View your app: .ais-dev-6mjmn3pcbtpqzdmffudibn-272308888115.asia-east1.run.app
 
 ## Run Locally
 
