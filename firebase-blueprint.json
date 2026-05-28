@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "Book": {
+      "title": "Book",
+      "description": "A book in the library catalogue",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "author": { "type": "string", "maxLength": 100 },
+        "isbn": { "type": "string", "maxLength": 20 },
+        "category": { "type": "string", "maxLength": 50 },
+        "rating": { "type": "number" },
+        "available": { "type": "boolean" },
+        "count": { "type": "number" },
+        "description": { "type": "string", "maxLength": 2000 },
+        "coverGradient": { "type": "string", "maxLength": 100 },
+        "coverImage": { "type": "string", "maxLength": 500 },
+        "accentColor": { "type": "string", "maxLength": 30 },
+        "year": { "type": "number" },
+        "pages": { "type": "number" }
+      },
+      "required": ["title", "author", "isbn", "category", "rating", "available", "count", "description", "coverGradient", "accentColor", "year", "pages"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "User review for a book",
+      "type": "object",
+      "properties": {
+        "userName": { "type": "string", "maxLength": 100 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "rating": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 1000 },
+        "date": { "type": "string" }
+      },
+      "required": ["userName", "userId", "rating", "comment", "date"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with roles",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 150 },
+        "name": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["student", "librarian", "admin"] },
+        "balance": { "type": "number" }
+      },
+      "required": ["email", "name", "role", "balance"]
+    },
+    "UserBadge": {
+      "title": "UserBadge",
+      "description": "Badges unlocked by the user",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "unlockedAt": { "type": "string" }
+      },
+      "required": ["name", "description", "icon"]
+    },
+    "IssueTransaction": {
+      "title": "IssueTransaction",
+      "description": "A transaction log for book borrowing",
+      "type": "object",
+      "properties": {
+        "bookId": { "type": "string", "maxLength": 128 },
+        "bookTitle": { "type": "string", "maxLength": 200 },
+        "userName": { "type": "string", "maxLength": 100 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 150 },
+        "issueDate": { "type": "string", "maxLength": 50 },
+        "dueDate": { "type": "string", "maxLength": 50 },
+        "returnDate": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["issued", "returned", "overdue"] },
+        "fineAmount": { "type": "number" },
+        "finePaid": { "type": "boolean" },
+        "qrCodeData": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["bookId", "bookTitle", "userName", "userId", "userEmail", "issueDate", "dueDate", "status", "fineAmount", "finePaid"]
+    }
+  },
+  "firestore": {
+    "/books/{bookId}": {
+      "schema": "Book",
+      "description": "Collection of books. Public read, librarian/admin write."
+    },
+    "/books/{bookId}/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Reviews on a book. User can create/update their own."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles. Owner reads, everyone reads name, admin writes."
+    },
+    "/users/{userId}/badges/{badgeId}": {
+      "schema": "UserBadge",
+      "description": "User's achievement badges."
+    },
+    "/transactions/{transactionId}": {
+      "schema": "IssueTransaction",
+      "description": "Library borrow/return transactions."
+    }
+  }
+}

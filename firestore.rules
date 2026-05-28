@@ -1,0 +1,153 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // --------------------------------------------------------------------------
+    // GLOBAL HELPERS
+    // --------------------------------------------------------------------------
+    function isSignedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function isAdmin() { 
+      return isSignedIn() && (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) || request.auth.token.email == 'pranayturakane743@gmail.com'); 
+    }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function existing() { return resource.data; }
+    function incoming() { return request.resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // --------------------------------------------------------------------------
+    // VALIDATION BLUEPRINTS
+    // --------------------------------------------------------------------------
+    function isValidBook(data) {
+      return data.keys().hasAll(['title', 'author', 'isbn', 'category', 'rating', 'available', 'count', 'description', 'coverGradient', 'accentColor', 'year', 'pages'])
+        && data.title is string && data.title.size() <= 200
+        && data.author is string && data.author.size() <= 100
+        && data.isbn is string && data.isbn.size() <= 20
+        && data.category is string && data.category.size() <= 50
+        && data.rating is number
+        && data.available is bool
+        && data.count is number && data.count >= 0
+        && data.description is string && data.description.size() <= 2000
+        && data.coverGradient is string && data.coverGradient.size() <= 100
+        && data.accentColor is string && data.accentColor.size() <= 30
+        && data.year is number
+        && data.pages is number
+        && data.keys().size() <= 14; 
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['userName', 'userId', 'rating', 'comment', 'date'])
+        && data.userName is string && data.userName.size() <= 100
+        && data.userId is string && data.userId == request.auth.uid
+        && data.rating is number && data.rating >= 0 && data.rating <= 5
+        && data.comment is string && data.comment.size() <= 1000
+        && data.date is string && data.date.size() <= 50
+        && data.keys().size() == 5;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['email', 'name', 'role', 'balance'])
+        && data.email is string && data.email.size() <= 150
+        && data.name is string && data.name.size() <= 100
+        && data.role is string && data.role in ['student', 'librarian', 'admin']
+        && data.balance is number
+        && data.keys().size() == 4;
+    }
+
+    function isValidUserBadge(data) {
+      return data.keys().hasAll(['name', 'description', 'icon'])
+        && data.name is string && data.name.size() <= 100
+        && data.description is string && data.description.size() <= 500
+        && data.icon is string && data.icon.size() <= 100
+        && (data.keys().hasAll(['unlockedAt']) ? (data.unlockedAt is string && data.unlockedAt.size() <= 50) : true)
+        && data.keys().size() <= 4;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['bookId', 'bookTitle', 'userName', 'userId', 'userEmail', 'issueDate', 'dueDate', 'status', 'fineAmount', 'finePaid'])
+        && data.bookId is string && data.bookId.size() <= 128
+        && data.bookTitle is string && data.bookTitle.size() <= 200
+        && data.userName is string && data.userName.size() <= 100
+        && data.userId is string && data.userId == request.auth.uid
+        && data.userEmail is string && data.userEmail.size() <= 150
+        && data.issueDate is string && data.issueDate.size() <= 50
+        && data.dueDate is string && data.dueDate.size() <= 50
+        && data.status is string && data.status in ['issued', 'returned', 'overdue']
+        && data.fineAmount is number
+        && data.finePaid is bool
+        && (data.keys().hasAll(['returnDate']) ? (data.returnDate is string && data.returnDate.size() <= 50) : true)
+        && (data.keys().hasAll(['qrCodeData']) ? (data.qrCodeData is string && data.qrCodeData.size() <= 1000) : true)
+        && data.keys().size() <= 12;
+    }
+
+    // --------------------------------------------------------------------------
+    // RULE BLOCKS
+    // --------------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /admins/{adminId} {
+      // Internal use only. Set via Firebase console.
+      allow read: if isSignedIn() && request.auth.uid == adminId;
+      allow write: if false;
+    }
+
+    match /books/{bookId} {
+      allow read: if isValidId(bookId);
+      allow list: if true; // Public read
+      allow create: if isAdmin() && isValidBook(incoming());
+      allow update: if isAdmin() && isValidBook(incoming());
+      allow delete: if isAdmin();
+
+      match /reviews/{reviewId} {
+        allow read: if isValidId(reviewId);
+        allow list: if true;
+        allow create: if isSignedIn() && isValidReview(incoming()) && exists(/databases/$(database)/documents/books/$(bookId));
+        allow update: if isSignedIn() && isValidReview(incoming()) && existing().userId == request.auth.uid 
+            && incoming().diff(existing()).affectedKeys().hasOnly(['rating', 'comment', 'date']);
+        allow delete: if isSignedIn() && existing().userId == request.auth.uid || isAdmin();
+      }
+    }
+
+    match /users/{userId} {
+      // Split public/private logic. We allow any auth user to read the name.
+      allow read: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      
+      // Only admins or automated triggers can create user profiles to prevent spoofing roles.
+      // But for simplicity, we allow create if the ID matches and they only create a student.
+      allow create: if isOwner(userId) && isValidUserProfile(incoming()) && incoming().role == 'student' && incoming().balance == 0;
+      
+      // Users can modify their own profile, but NOT their role or balance.
+      allow update: if isOwner(userId) && isValidUserProfile(incoming()) && incoming().role == existing().role && incoming().balance == existing().balance
+          || isAdmin() && isValidUserProfile(incoming());
+      allow delete: if isAdmin();
+
+      match /badges/{badgeId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow list: if isOwner(userId) || isAdmin();
+        allow create, update, delete: if isAdmin(); // Only admins can grant badges
+      }
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn() && existing().userId == request.auth.uid || isAdmin();
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid || isAdmin();
+      
+      // Anyone can create a transaction for themselves.
+      allow create: if isSignedIn() 
+          && isValidTransaction(incoming()) 
+          && exists(/databases/$(database)/documents/books/$(incoming().bookId));
+      
+      // Update logic. When returning a book, they can only update status, returnDate.
+      allow update: if isSignedIn() && isValidTransaction(incoming()) && existing().userId == request.auth.uid 
+          && existing().status != 'returned' // Terminal state lock
+          && incoming().userId == existing().userId
+          && incoming().bookId == existing().bookId
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'returnDate', 'fineAmount', 'finePaid'])
+          || isAdmin() && isValidTransaction(incoming());
+          
+      allow delete: if isAdmin();
+    }
+  }
+}

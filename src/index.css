@@ -1,0 +1,129 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  margin: 0;
+  background-color: #faf9f5;
+  color: #12141c;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Custom scrollbar styling for gold diamond theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(245, 243, 235, 0.05);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(223, 189, 105, 0.2);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(223, 189, 105, 0.4);
+}
+
+@keyframes neon-breath {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(255, 153, 51, 0.12), 0 0 40px rgba(18, 136, 7, 0.05), inset 0 0 12px rgba(255, 255, 255, 0.02);
+    border-color: rgba(245, 158, 11, 0.18);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 65px rgba(255, 153, 51, 0.55), 0 0 95px rgba(18, 136, 7, 0.35), inset 0 0 35px rgba(255, 153, 51, 0.2);
+    border-color: rgba(245, 158, 11, 0.85);
+    transform: scale(1.012);
+  }
+}
+
+.animate-neon-breath {
+  animation: neon-breath 6s ease-in-out infinite;
+}
+
+@property --rotation {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes rotate-gradient {
+  to {
+    --rotation: 360deg;
+  }
+}
+
+.radiant-input-wrapper {
+  --border-size: 2px;
+  --gradient: conic-gradient(
+    from var(--rotation) 
+    at 50% 50%, 
+    #ff9933 0%, 
+    #dfbd69 25%, 
+    #128807 50%, 
+    #dfbd69 75%, 
+    #ff9933 100%
+  );
+  animation: rotate-gradient 6s infinite linear;
+}
+
+/* The glowing border effect */
+.radiant-input-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: calc(var(--border-size) * -1);
+  border-radius: inherit;
+  background: var(--gradient);
+  z-index: -1;
+  filter: blur(10px);
+  opacity: 0.35;
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.radiant-input-wrapper:focus-within::before {
+  opacity: 0.75;
+  filter: blur(16px);
+}
+
+/* The sharp border mask */
+.radiant-input-border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: var(--border-size);
+  background: var(--gradient);
+  -webkit-mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+@keyframes gold-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0px rgba(223, 189, 105, 0.75);
+    border-color: rgba(223, 189, 105, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(223, 189, 105, 0);
+    border-color: rgba(212, 175, 55, 1);
+  }
+}
+
+.animate-gold-pulse {
+  animation: gold-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+
+

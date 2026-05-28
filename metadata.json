@@ -1,0 +1,10 @@
+{
+  "name": "Bharat eLibrary",
+  "description": "A futuristic immersive 3D digital library with AI-powered search, interactive bookshelf, and intelligent issue tracking.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
