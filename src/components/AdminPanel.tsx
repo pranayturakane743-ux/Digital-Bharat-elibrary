@@ -359,55 +359,27 @@ export function AdminPanel({
         </div>
 
         <div className="flex items-center gap-3.5 flex-wrap">
-          <div className="relative group flex items-center">
-            <button
-              id="open-scan-qr-btn"
-              disabled={currentRole === 'student'}
-              onClick={() => {
-                setIsScanModalOpen(true);
-                setUseRealCamera(false);
-                setPresentedTx(null);
-                setScanState('idle');
-                setScanFeedback('READY FOR SPECIMEN. PLACE BOOK IN VIEWPORT LENS WITH "PRESENT QR"...');
-              }}
-              className={`flex items-center gap-2 p-2 px-3.5 rounded-lg text-[10px] font-mono tracking-wider font-extrabold uppercase border transition-all cursor-pointer ${
-                currentRole === 'student'
-                  ? 'opacity-40 bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed'
-                  : hasOverdueInSystem
-                  ? 'bg-amber-600/20 border-amber-500/80 text-amber-950 animate-gold-pulse'
-                  : 'bg-amber-600/15 border-amber-600/25 text-amber-900 hover:bg-amber-600/25 hover:border-amber-600/45 shadow-sm'
-              }`}
-            >
-              <QrCode className="w-4 h-4 text-amber-750 shrink-0" />
-              <span>Scan Returns</span>
-            </button>
-
-            {/* Visual Help Icon and Detailed Hover Tooltip */}
-            <div 
-              id="scan-returns-help-tooltip" 
-              className="relative ml-1.5 cursor-help text-stone-400 hover:text-amber-700 transition-colors p-1"
-            >
-              <HelpCircle className="w-4 h-4" />
-              
-              {/* Tooltip Content Card */}
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-64 p-3.5 bg-stone-900 border border-stone-800 text-stone-200 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-250 z-50 text-[10px] leading-relaxed font-sans normal-case tracking-normal">
-                <div className="font-bold text-amber-400 mb-1.5 font-mono uppercase tracking-wider text-[9px] flex items-center gap-1.5 border-b border-stone-800 pb-1.5">
-                  <QrCode className="w-3.5 h-3.5 text-amber-500" /> QR Desk Scanner Guide
-                </div>
-                <p className="mb-2.5 text-stone-300">
-                  Allows instant book check-in by aligning barcode/QR specimens. Click <span className="font-mono text-[#dfbd69] font-bold">"Present QR"</span> next to any active student borrow record, then fire the <span className="font-semibold text-stone-100">Laser Decode</span>.
-                </p>
-                <div className="pt-2 border-t border-stone-850 flex items-start gap-1.5 text-[9px]">
-                  <span className="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse mt-0.5 shrink-0" />
-                  <p className="text-stone-400">
-                    <span className="font-semibold text-amber-400">Attention Required:</span> If any book becomes <span className="font-semibold text-rose-400">overdue</span> in the ledger, this button will automatically pulse with a gold halo to request librarian priority.
-                  </p>
-                </div>
-                {/* Arrow */}
-                <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-stone-900" />
-              </div>
-            </div>
-          </div>
+          <button
+            id="open-scan-qr-btn"
+            disabled={currentRole === 'student'}
+            onClick={() => {
+              setIsScanModalOpen(true);
+              setUseRealCamera(false);
+              setPresentedTx(null);
+              setScanState('idle');
+              setScanFeedback('READY FOR SPECIMEN. PLACE BOOK IN VIEWPORT LENS WITH "PRESENT QR"...');
+            }}
+            className={`flex items-center gap-2 p-2 px-3.5 rounded-lg text-[10px] font-mono tracking-wider font-extrabold uppercase border transition-all cursor-pointer ${
+              currentRole === 'student'
+                ? 'opacity-40 bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed'
+                : hasOverdueInSystem
+                ? 'bg-amber-600/20 border-amber-500/80 text-amber-950 animate-gold-pulse'
+                : 'bg-amber-600/15 border-amber-600/25 text-amber-900 hover:bg-amber-600/25 hover:border-amber-600/45 shadow-sm'
+            }`}
+          >
+            <QrCode className="w-4 h-4 text-amber-750 shrink-0" />
+            <span>Scan Returns</span>
+          </button>
 
           <div className="flex gap-2">
             {(['student', 'librarian', 'admin'] as const).map((role) => (
@@ -689,9 +661,26 @@ export function AdminPanel({
               {/* Inline CSS elements for Sweep Laser / Pulse animations */}
               <style dangerouslySetInnerHTML={{ __html: `
                 @keyframes scan-laser {
-                  0% { top: 0%; opacity: 0.3; }
-                  50% { top: 100%; opacity: 1; }
-                  100% { top: 0%; opacity: 0.3; }
+                  0% { top: 0%; }
+                  50% { top: 100%; }
+                  100% { top: 0%; }
+                }
+                @keyframes laser-glow {
+                  0%, 100% { 
+                    opacity: 0.6; 
+                    box-shadow: 0 0 8px #dfbd69, 0 0 2px #aa7c11;
+                    filter: brightness(0.9);
+                  }
+                  10%, 40%, 70% { 
+                    opacity: 1;
+                    box-shadow: 0 0 25px #dfbd69, 0 0 12px #aa7c11, 0 0 45px rgba(223,189,105,0.8);
+                    filter: brightness(1.5);
+                  }
+                  25%, 55%, 85% {
+                    opacity: 0.3;
+                    box-shadow: 0 0 4px #dfbd69;
+                    filter: brightness(0.7);
+                  }
                 }
                 @keyframes grid-pulse {
                   0%, 100% { opacity: 0.15; }
@@ -699,12 +688,12 @@ export function AdminPanel({
                 }
                 .animate-scan-laser {
                   position: absolute;
-                  height: 4px;
+                  height: 3px;
                   width: 100%;
-                  background: linear-gradient(to right, transparent, #d4af37, #aa7c11, #d4af37, transparent);
-                  box-shadow: 0 0 10px #dfbd69, 0 0 3px #aa7c11;
-                  animation: scan-laser 2.2s infinite linear;
+                  background: linear-gradient(to right, transparent, rgba(212,175,55,0.8), #ffffff, rgba(212,175,55,0.8), transparent);
+                  animation: scan-laser 2.5s infinite ease-in-out, laser-glow 0.8s infinite linear;
                   pointer-events: none;
+                  z-index: 20;
                 }
                 .animate-grid-pulse {
                   animation: grid-pulse 2s infinite ease-in-out;

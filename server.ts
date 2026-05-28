@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
@@ -13,6 +14,28 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Exquisite multi-path fallback image resolver to prevent broken cover images in any environment
+app.get('/src/assets/images/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const locations = [
+    path.join(process.cwd(), 'src/assets/images', filename),
+    path.join(process.cwd(), 'dist/src/assets/images', filename),
+  ];
+
+  for (const loc of locations) {
+    if (fs.existsSync(loc)) {
+      return res.sendFile(loc);
+    }
+  }
+
+  console.warn(`[Image System] Requested file not resolved in locations: ${filename}`);
+  res.status(404).send('Image cover file not found');
+});
+
+// Also keep standard static fallbacks just in case
+app.use('/src/assets/images', express.static(path.join(process.cwd(), 'src/assets/images')));
+app.use('/src/assets/images', express.static(path.join(process.cwd(), 'dist/src/assets/images')));
+
 // In-memory data store that persists during the container's session
 let books: Book[] = [...INITIAL_BOOKS];
 let transactions: IssueTransaction[] = [
@@ -21,6 +44,7 @@ let transactions: IssueTransaction[] = [
     bookId: "b3",
     bookTitle: "Synthecon: Algorithmic Global Governance",
     userName: "Turakane Student",
+    userId: "local_user",
     userEmail: "pranayturakane743@gmail.com",
     issueDate: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString().split('T')[0], // 15 days ago
     dueDate: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString().split('T')[0],   // Overdue by 5 days
@@ -157,6 +181,7 @@ app.post("/api/books/issue", (req, res) => {
     bookId,
     bookTitle: book.title,
     userName: userName || userProfile.name,
+    userId: "local_user",
     userEmail: userEmail || userProfile.email,
     issueDate,
     dueDate,

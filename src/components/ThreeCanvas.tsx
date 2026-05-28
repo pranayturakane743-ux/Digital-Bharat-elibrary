@@ -234,7 +234,7 @@ export function ThreeCanvas() {
       ref={containerRef}
       id="3d-particles-container"
       className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-85"
-      style={{ background: 'linear-gradient(to bottom, #faf9f5 0%, rgba(246, 243, 235, 0.45) 50%, #faf9f5 100%)' }}
+      style={{ background: 'transparent' }}
     />
   );
 }

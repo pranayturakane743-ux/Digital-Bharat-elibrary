@@ -37,6 +37,7 @@ export interface IssueTransaction {
   bookId: string;
   bookTitle: string;
   userName: string;
+  userId: string;
   userEmail: string;
   issueDate: string;
   dueDate: string;

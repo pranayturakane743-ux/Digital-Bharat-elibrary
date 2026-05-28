@@ -22,6 +22,7 @@ const { db, auth } = getFirebase();
 import { CardSwap, Card } from './components/CardSwap';
 import { TubesBackground } from './components/TubesBackground';
 import { TemporalClock } from './components/TemporalClock';
+import { INITIAL_BOOKS, BADGES } from './data';
 
 export default function App() {
   // Navigation Routing States
@@ -56,32 +57,95 @@ export default function App() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const booksSnap = await getDocs(collection(db, 'books'));
-      const booksData = booksSnap.docs.map(d => ({ id: d.id, ...d.data() } as Book));
+      let booksData: Book[] = [];
+      try {
+        const booksSnap = await getDocs(collection(db, 'books'));
+        booksData = booksSnap.docs.map(d => ({ id: d.id, ...d.data() } as Book));
+        
+        // Seeding initial books from data.ts if the Firestore collection is empty
+        if (booksData.length === 0) {
+          const batch = writeBatch(db);
+          for (const book of INITIAL_BOOKS) {
+            batch.set(doc(db, 'books', book.id), book);
+          }
+          await batch.commit();
+          const reSnap = await getDocs(collection(db, 'books'));
+          booksData = reSnap.docs.map(d => ({ id: d.id, ...d.data() } as Book));
+        }
+      } catch (dbErr) {
+        console.warn("Firestore unavailable, loading locally:", dbErr);
+        booksData = [...INITIAL_BOOKS];
+      }
+
+      // Automatically enrich/heal Firestore books with local file coverImages, gradients, and accent colors
+      // Match by ID, ISBN, or Title to make this self-healing mechanism extremely resilient
+      const enrichedBooks = booksData.map(b => {
+        const initial = INITIAL_BOOKS.find(init => 
+          init.id === b.id || 
+          (b.isbn && init.isbn === b.isbn) || 
+          (b.title && init.title.toLowerCase() === b.title.toLowerCase())
+        );
+        if (initial) {
+          return {
+            ...b,
+            coverImage: initial.coverImage || b.coverImage,
+            coverGradient: initial.coverGradient || b.coverGradient,
+            accentColor: initial.accentColor || b.accentColor
+          };
+        }
+        return b;
+      });
       
-      setBooks(booksData);
-      setFilteredBooks(booksData);
+      setBooks(enrichedBooks);
+      setFilteredBooks(enrichedBooks);
       
       if (auth.currentUser) {
-        const txsSnap = await getDocs(query(collection(db, 'transactions'), where('userId', '==', auth.currentUser.uid)));
-        setTransactions(txsSnap.docs.map(d => ({ id: d.id, ...d.data() } as IssueTransaction)));
-        
         try {
+          const txsSnap = await getDocs(query(collection(db, 'transactions'), where('userId', '==', auth.currentUser.uid)));
+          setTransactions(txsSnap.docs.map(d => ({ id: d.id, ...d.data() } as IssueTransaction)));
+          
           const profileSnap = await getDoc(doc(db, 'users', auth.currentUser.uid));
           if (profileSnap.exists()) {
             setUserProfile({ ...profileSnap.data(), email: auth.currentUser.email, name: auth.currentUser.displayName || "Unknown" } as UserProfile);
           } else {
-             // Let's create it if missing for simplicity
-             const newProfile = { email: auth.currentUser.email, name: auth.currentUser.displayName, role: 'student', balance: 0 };
-             try{
+             const newProfile = { email: auth.currentUser.email, name: auth.currentUser.displayName || "Google Scholar", role: 'student', balance: 300 };
+             try {
                await setDoc(doc(db, 'users', auth.currentUser.uid), newProfile);
                setUserProfile({ ...newProfile, badges: [] } as UserProfile);
              } catch(e) {
-               console.log("Could not create user profile.");
+               console.log("Could not create user profile block in Firestore.");
+               setUserProfile({ ...newProfile, badges: [] } as UserProfile);
              }
           }
-        } catch (e) {
-           console.log("Error loading profile");
+        } catch (authDbErr) {
+          console.error("Authenticated Firestore profile load failed:", authDbErr);
+        }
+      } else {
+        const saved = localStorage.getItem('BHARAT_ELIB_USER');
+        if (saved) {
+          const profile = JSON.parse(saved);
+          setUserProfile(profile);
+          const savedTxs = localStorage.getItem('BHARAT_ELIB_TXS');
+          if (savedTxs) {
+            setTransactions(JSON.parse(savedTxs));
+          } else {
+            const initialTx: IssueTransaction = {
+              id: "tx1",
+              bookId: "b3",
+              bookTitle: "A Fine Balance",
+              userName: profile.name,
+              userId: "local_user",
+              userEmail: profile.email,
+              issueDate: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString().split('T')[0],
+              dueDate: new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString().split('T')[0],
+              status: 'issued',
+              fineAmount: 50,
+              finePaid: false,
+              qrCodeData: "LIBR_TX1_B3"
+            };
+            setTransactions([initialTx]);
+            localStorage.setItem('BHARAT_ELIB_TXS', JSON.stringify([initialTx]));
+          }
         }
       }
       
@@ -96,16 +160,21 @@ export default function App() {
     }
   };
 
-  
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
-      setIsLoggedIn(!!user);
       if(user) {
+         setIsLoggedIn(true);
          loadData();
       } else {
-         setLoading(false);
+         const saved = localStorage.getItem('BHARAT_ELIB_USER');
+         if (saved) {
+           setIsLoggedIn(true);
+           loadData();
+         } else {
+           setIsLoggedIn(false);
+           setLoading(false);
+         }
       }
-      // Set to normal UI when loaded so we don't block
     });
     return () => unsub();
   }, []);
@@ -202,7 +271,14 @@ export default function App() {
   // Transaction events handlers (Issue / Return / Pay / etc)
   
   const handleIssueBook = async (bookId: string) => {
-    if (!auth.currentUser) return;
+    const userEmail = auth.currentUser ? auth.currentUser.email : userProfile?.email;
+    const userName = auth.currentUser ? auth.currentUser.displayName : userProfile?.name;
+    const userId = auth.currentUser ? auth.currentUser.uid : "local_user";
+    
+    if (!userEmail) {
+      triggerToast("Please login first to issue catalog books.", "critique");
+      return;
+    }
     try {
       const book = books.find(b => b.id === bookId);
       if (!book) throw new Error("Not found");
@@ -211,12 +287,13 @@ export default function App() {
       const dueDate = new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString().split('T')[0];
       const newTxId = `tx_${Date.now()}`;
       
-      const txData = {
+      const txData: IssueTransaction = {
+        id: newTxId,
         bookId,
         bookTitle: book.title,
-        userName: auth.currentUser.displayName || "Scholar",
-        userId: auth.currentUser.uid,
-        userEmail: auth.currentUser.email,
+        userName: userName || "Scholar",
+        userId,
+        userEmail,
         issueDate,
         dueDate,
         status: 'issued',
@@ -225,7 +302,18 @@ export default function App() {
         qrCodeData: `LIBR_${Date.now()}_${bookId}`
       };
       
-      await setDoc(doc(db, 'transactions', newTxId), txData);
+      if (auth.currentUser) {
+        await setDoc(doc(db, 'transactions', newTxId), txData);
+      } else {
+        const updatedTxs = [txData, ...transactions];
+        setTransactions(updatedTxs);
+        localStorage.setItem('BHARAT_ELIB_TXS', JSON.stringify(updatedTxs));
+        
+        // restock available count check locally
+        const updatedBooks = books.map(b => b.id === bookId ? { ...b, count: Math.max(0, b.count - 1), available: b.count - 1 > 0 } : b);
+        setBooks(updatedBooks);
+        setFilteredBooks(updatedBooks);
+      }
       
       triggerToast(`Issued "${book.title}" successfully! Due date registered.`, "success");
       loadData();
@@ -235,20 +323,33 @@ export default function App() {
     }
   };
 
-  
   const handleReturnBook = async (transactionId: string): Promise<{ success: boolean; error?: string }> => {
-    if (!auth.currentUser) return { success: false, error: "Not authed" };
     try {
       const tx = transactions.find(t => t.id === transactionId);
       if (!tx) return { success: false, error: "Not found" };
-      if (tx.fineAmount > 0 && !tx.finePaid) return { success: false, error: "Outstanding overdue fines" };
+      if (tx.fineAmount > 0 && !tx.finePaid) return { success: false, error: "Outstanding overdue fines. Please clear dynamic balance." };
       
-      await updateDoc(doc(db, 'transactions', transactionId), {
-        status: 'returned',
-        returnDate: new Date().toISOString().split('T')[0],
-        finePaid: tx.finePaid,
-        fineAmount: tx.fineAmount
-      });
+      if (auth.currentUser) {
+        await updateDoc(doc(db, 'transactions', transactionId), {
+          status: 'returned',
+          returnDate: new Date().toISOString().split('T')[0],
+          finePaid: tx.finePaid,
+          fineAmount: tx.fineAmount
+        });
+      } else {
+        const updatedTxs = transactions.map(t => t.id === transactionId ? {
+          ...t,
+          status: 'returned' as const,
+          returnDate: new Date().toISOString().split('T')[0]
+        } : t);
+        setTransactions(updatedTxs);
+        localStorage.setItem('BHARAT_ELIB_TXS', JSON.stringify(updatedTxs));
+        
+        const updatedBooks = books.map(b => b.id === tx.bookId ? { ...b, count: b.count + 1, available: true } : b);
+        setBooks(updatedBooks);
+        setFilteredBooks(updatedBooks);
+      }
+      
       triggerToast(`Returned successfully!`, "success");
       loadData();
       return { success: true };
@@ -258,7 +359,6 @@ export default function App() {
   };
 
   const handleRenewBook = async (transactionId: string) => {
-    // Standard renewal simulation: extend due date by 7 days
     const txIndex = transactions.findIndex(t => t.id === transactionId);
     if (txIndex === -1) return;
 
@@ -266,21 +366,50 @@ export default function App() {
     const prevDue = new Date(tx.dueDate);
     const newDue = new Date(prevDue.getTime() + 7 * 24 * 3600 * 1000).toISOString().split('T')[0];
 
-    tx.dueDate = newDue;
+    if (auth.currentUser) {
+      try {
+        await updateDoc(doc(db, 'transactions', transactionId), {
+          dueDate: newDue
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    } else {
+      const updatedTxs = transactions.map(t => t.id === transactionId ? { ...t, dueDate: newDue } : t);
+      setTransactions(updatedTxs);
+      localStorage.setItem('BHARAT_ELIB_TXS', JSON.stringify(updatedTxs));
+    }
+    
     triggerToast(`Checkout renewed successfully! Expanded due line to: ${newDue}`, "neutral");
-    setTransactions([...transactions]);
+    loadData();
   };
 
-  
   const handlePayFine = async (transactionId: string, amount: number) => {
-    if(!auth.currentUser) return;
     try {
-      await updateDoc(doc(db, 'transactions', transactionId), {
-        finePaid: true,
-        fineAmount: 0,
-        status: 'returned',
-        returnDate: new Date().toISOString().split('T')[0],
-      });
+      if (auth.currentUser) {
+        await updateDoc(doc(db, 'transactions', transactionId), {
+          finePaid: true,
+          fineAmount: 0,
+          status: 'returned',
+          returnDate: new Date().toISOString().split('T')[0],
+        });
+      } else {
+        const updatedTxs = transactions.map(t => t.id === transactionId ? {
+          ...t,
+          finePaid: true,
+          fineAmount: 0,
+          status: 'returned' as const,
+          returnDate: new Date().toISOString().split('T')[0]
+        } : t);
+        setTransactions(updatedTxs);
+        localStorage.setItem('BHARAT_ELIB_TXS', JSON.stringify(updatedTxs));
+        
+        if (userProfile) {
+          const updatedProfile = { ...userProfile, balance: Math.max(0, userProfile.balance - amount) };
+          setUserProfile(updatedProfile);
+          localStorage.setItem('BHARAT_ELIB_USER', JSON.stringify(updatedProfile));
+        }
+      }
       triggerToast(`Fines of ₹${amount} settled successfully via Razorpay interface!`, "success");
       loadData();
     } catch (err) {
@@ -288,13 +417,16 @@ export default function App() {
     }
   };
 
-  
   const handleRechargeWallet = async (amount: number) => {
-    triggerToast("Digital gateway is restricted to Admins currently in true database mode.", "neutral");
+    if (userProfile) {
+      const updatedProfile = { ...userProfile, balance: userProfile.balance + amount };
+      setUserProfile(updatedProfile);
+      localStorage.setItem('BHARAT_ELIB_USER', JSON.stringify(updatedProfile));
+      triggerToast(`Deposited ₹${amount} into pocket balance!`, "success");
+    }
   };
 
   const handleAddBookAdmin = (newBook: Book) => {
-    // Add dynamically to local inventory
     setBooks(prev => [newBook, ...prev]);
   };
 
@@ -312,18 +444,37 @@ export default function App() {
     localStorage.setItem('LIBR_WISHLIST', JSON.stringify(updated));
   };
 
-  
   const handleSubmitReview = async (bookId: string, userName: string, rating: number, comment: string) => {
-    if (!auth.currentUser) return;
+    const authorUser = auth.currentUser ? (auth.currentUser.displayName || "Scholar") : (userProfile?.name || "Scholar");
+    const authorUserId = auth.currentUser ? auth.currentUser.uid : "local_user";
+    
     try {
       const newReview = {
-        userName: auth.currentUser.displayName || "Scholar",
-        userId: auth.currentUser.uid,
+        userName: authorUser,
+        userId: authorUserId,
         rating: Number(rating) || 5,
         comment: comment || "",
         date: new Date().toISOString().split('T')[0]
       };
-      await setDoc(doc(db, `books/${bookId}/reviews/rev_${Date.now()}`), newReview);
+      
+      if (auth.currentUser) {
+        await setDoc(doc(db, `books/${bookId}/reviews/rev_${Date.now()}`), newReview);
+      } else {
+        const bookIndex = books.findIndex(b => b.id === bookId);
+        if (bookIndex !== -1) {
+          const book = books[bookIndex];
+          const updatedReviews = [ { id: `rev_${Date.now()}`, ...newReview }, ...(book.reviews || []) ];
+          const avgRating = updatedReviews.reduce((acc, rev) => acc + rev.rating, 0) / updatedReviews.length;
+          
+          const updatedBooks = books.map(b => b.id === bookId ? {
+            ...b,
+            reviews: updatedReviews,
+            rating: parseFloat(avgRating.toFixed(1))
+          } : b);
+          setBooks(updatedBooks);
+          setFilteredBooks(updatedBooks);
+        }
+      }
       triggerToast(`Thank you for submitting critical score: ★ ${rating}!`, "success");
       loadData();
     } catch (err) {
@@ -339,19 +490,38 @@ export default function App() {
     triggerToast(`Simulation mode changed to role: "${role.toUpperCase()}"`, "neutral");
   };
 
-  
+  const handleCustomLoginSubmit = (name: string, email: string, role: 'student' | 'librarian' | 'admin') => {
+    const newProfile: UserProfile = {
+      email,
+      name,
+      role,
+      badges: [],
+      balance: 300
+    };
+    
+    localStorage.setItem('BHARAT_ELIB_USER', JSON.stringify(newProfile));
+    setUserProfile(newProfile);
+    setIsLoggedIn(true);
+    triggerToast(`Welcome to Bharat eLibrary as ${role.toUpperCase()}!`, "success");
+    loadData();
+  };
+
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
       triggerToast(`Welcome to Bharat eLibrary!`, "success");
     } catch (e) {
-      triggerToast("Login failed.", "critique");
+      triggerToast("Login failed. Check internet link or try local simulated mode above.", "critique");
     }
   };
 
   const handleLogout = async () => {
-    await signOut(auth);
+    try {
+      await signOut(auth);
+    } catch (e) {}
+    localStorage.removeItem('BHARAT_ELIB_USER');
+    localStorage.removeItem('BHARAT_ELIB_TXS');
     setIsLoggedIn(false);
     setUserProfile(null);
     setTransactions([]);
@@ -395,7 +565,24 @@ export default function App() {
               </div>
 
               {/* Form Input fields */}
-              <button onClick={handleLogin} className="w-full py-3 bg-amber-500 rounded-xl text-black font-bold">Sign In Using Google</button>
+              <LoginForm onSubmit={handleCustomLoginSubmit} />
+
+              {/* Seamless OR clouds separator */}
+              <div className="relative flex py-1 items-center select-none">
+                <div className="flex-grow border-t border-stone-850"></div>
+                <span className="flex-shrink mx-4 text-[9px] text-stone-605 font-mono font-bold uppercase tracking-widest text-stone-500">or cloud login</span>
+                <div className="flex-grow border-t border-stone-850"></div>
+              </div>
+
+              {/* Standard cloud authentication */}
+              <button 
+                id="google-cloud-auth-btn"
+                onClick={handleLogin} 
+                className="w-full py-2.5 bg-stone-900/40 border border-[#dfbd69]/15 rounded-xl text-stone-300 font-bold hover:bg-stone-800/60 hover:text-white transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                <span>Sign In via Firestore auth</span>
+              </button>
 
               {/* Footer instruction */}
               <div className="text-center space-y-1">
@@ -644,7 +831,7 @@ export default function App() {
                                   className="w-full h-full p-0 overflow-hidden cursor-pointer group bg-stone-950 border border-stone-800 rounded-2xl flex flex-col justify-between"
                                 >
                                   {/* Beautiful authentic Book Cover Page configuration */}
-                                  <div className="h-full w-full p-5 flex flex-col justify-between relative bg-stone-950 overflow-hidden">
+                                  <div className="h-full w-full p-5 flex flex-col justify-between relative bg-stone-950 overflow-hidden text-left">
                                     {b.coverImage ? (
                                       <img
                                         src={b.coverImage}
@@ -653,7 +840,7 @@ export default function App() {
                                         referrerPolicy="no-referrer"
                                       />
                                     ) : (
-                                      <div className={`absolute inset-0 bg-gradient-to-br ${b.coverGradient || "from-amber-600 to-amber-900"} opacity-90 transition-transform duration-500`} />
+                                      <div className={`absolute inset-0 bg-gradient-to-br ${b.coverGradient || "from-amber-600 to-amber-900"} opacity-95 transition-transform duration-500`} />
                                     )}
                                     
                                     {/* Real Book Spine crease shadow and bindings simulation */}
@@ -661,11 +848,12 @@ export default function App() {
                                     <div className="absolute inset-y-0 left-3 w-[0.5px] bg-white/20 z-20 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
                                     
                                     {/* Centered Book Cover Title Plate */}
-                                    <div className="absolute inset-0 p-5 flex flex-col justify-end text-white bg-gradient-to-t from-black/80 to-transparent z-20">
-                                      <h3 className="text-lg font-bold font-sans line-clamp-2 leading-tight drop-shadow-md text-white/95">
+                                    <div className="absolute inset-0 p-5 flex flex-col justify-end text-white bg-gradient-to-t from-black/85 via-black/40 to-transparent z-20">
+                                      <span className="text-[9px] uppercase font-mono tracking-widest text-[#dfbd69] opacity-90 mb-1">{b.category}</span>
+                                      <h3 className="text-base font-bold font-sans line-clamp-3 leading-tight drop-shadow-md text-stone-100">
                                         {b.title}
                                       </h3>
-                                      <p className="text-xs font-mono text-white/70 mt-1">by {b.author}</p>
+                                      <p className="text-[10px] font-mono text-stone-400 mt-1.5 font-medium">by {b.author}</p>
                                     </div>
                                   </div>
                                 </Card>
@@ -783,7 +971,7 @@ export default function App() {
                           </button>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-x-8 gap-y-12 justify-items-center mt-6">
                           {filteredBooks.map((book) => (
                             <BookCard
                               key={book.id}
@@ -793,7 +981,7 @@ export default function App() {
                               isWishlisted={wishlist.some(b => b.id === book.id)}
                               onViewDetails={(b) => setDetailedBook(b)}
                               onSubmitReview={handleSubmitReview}
-                              userName={userProfile ? userProfile.name : "Pranay Turakane"}
+                              userName={userProfile ? userProfile.name : "Student"}
                             />
                           ))}
                         </div>
